@@ -17,41 +17,40 @@ public class ClientOverlay {
     public static void onRenderOverlay(RenderGuiOverlayEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         GuiGraphics g = event.getGuiGraphics();
-
         if (mc.player == null) return;
 
-        // Guard: notifier exists (will be non-null in singleplayer or if server initialized it)
         TimeNotifier notifier = TimeLimiter.getNotifier();
         if (notifier == null) return;
 
         long remainingMillis = notifier.getRemainingMillis(mc.player.getUUID());
         long totalMillis = notifier.getCountdownSeconds() * 1000L;
-        double progress = Math.max(0.0, Math.min(1.0, (double) remainingMillis / (double) totalMillis));
 
-        // color gradient: green -> red (progress: 1 full => green, 0 => red)
+        // Normal progress (dark green -> red)
+        double progress = Math.max(0.0, Math.min(1.0, (double) remainingMillis / (double) totalMillis));
         float hue = (float) (0.33f * progress); // 0.33 green -> 0 red
         java.awt.Color colorObj = java.awt.Color.getHSBColor(hue, 1.0f, 1.0f);
         int color = (0xFF << 24) | (colorObj.getRed() << 16) | (colorObj.getGreen() << 8) | colorObj.getBlue();
 
-        // background texture
+        // Background
         ResourceLocation TEXTURE = new ResourceLocation("timelimiter", "textures/gui/time_bg.png");
         int bgX = 5;
         int bgY = mc.getWindow().getGuiScaledHeight() - 26;
         int regionWidth = 69;
         int regionHeight = 27;
-
         RenderSystem.setShaderTexture(0, TEXTURE);
-        g.blit(TEXTURE, bgX, bgY, 0, 0, regionWidth, regionHeight, 800, 800); // last args = actual texture size (adjust if your PNG isn't 64x64)
+        g.blit(TEXTURE, bgX, bgY, 0, 0, regionWidth, regionHeight, 800, 800);
 
-        // progress bar inside background
+        // Inner bar dimensions
         int innerX = bgX + 3;
         int innerY = bgY + 3;
         int innerWidth = 63;
         int innerHeight = 21;
+
+        // Normal progress bar (dark green/red gradient)
         int fillWidth = (int) (innerWidth * progress);
         g.fill(innerX, innerY, innerX + fillWidth, innerY + innerHeight, color);
 
-        // draw time (top line)
+        // Region time
         float scale = 0.9f;
         String regionTime = TimeLimiter.getRegionTime("Asia/Tokyo");
         g.pose().pushPose();
@@ -59,13 +58,15 @@ public class ClientOverlay {
         g.drawString(mc.font, Component.literal(regionTime), (int) ((bgX + 6) / scale), (int) ((bgY + 4) / scale), 0xFFFFFF, true);
         g.pose().popPose();
 
-        // draw countdown text (mm:ss:ms)
+        // Countdown text (HH:mm:ss:ms)
         long countdownMillis = remainingMillis;
         long seconds = countdownMillis / 1000;
         long minutes = seconds / 60;
+        long hours = minutes / 60;
         seconds %= 60;
+        minutes %= 60;
         long millis = countdownMillis % 1000;
-        String countdown = String.format("%02d:%02d.%03d", minutes, seconds, millis);
+        String countdown = String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis);
 
         g.pose().pushPose();
         g.pose().scale(scale, scale, 1);
