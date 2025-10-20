@@ -10,6 +10,9 @@ import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+
 @Mod.EventBusSubscriber(modid = "timelimiter", value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ClientOverlay {
 
@@ -32,7 +35,7 @@ public class ClientOverlay {
         ResourceLocation TEXTURE = new ResourceLocation("timelimiter", "textures/gui/time_bg.png");
         int bgX = 5;
         int bgY = mc.getWindow().getGuiScaledHeight() - 26;
-        int regionWidth = 69;
+        int regionWidth = 95;
         int regionHeight = 27;
         RenderSystem.setShaderTexture(0, TEXTURE);
         g.blit(TEXTURE, bgX, bgY, 0, 0, regionWidth, regionHeight, 800, 800);
@@ -40,7 +43,7 @@ public class ClientOverlay {
         // Inner bar dimensions
         int innerX = bgX + 3;
         int innerY = bgY + 3;
-        int innerWidth = 63;
+        int innerWidth = 89;
         int innerHeight = 21;
 
         // --- Base progress bar (green -> red) ---
@@ -68,12 +71,17 @@ public class ClientOverlay {
 
 
         // --- Region time ---
+        CountdownConfigData data = TimeLimiter.getNotifier().savedConfig;
+        ZonedDateTime now = ZonedDateTime.now(data.getGlobalTimezone());
+        String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm")) + " (" + data.getGlobalTimezone().toString() + ")";
+
+
         float scale = 0.9f;
-        String regionTime = TimeLimiter.getRegionTime("Asia/Tokyo");
         g.pose().pushPose();
         g.pose().scale(scale, scale, 1);
         g.drawString(mc.font, Component.literal(regionTime), (int) ((bgX + 6) / scale), (int) ((bgY + 4) / scale), 0xFFFFFF, true);
         g.pose().popPose();
+
 
         // --- Countdown text ---
         long countdownMillis = remainingMillis;

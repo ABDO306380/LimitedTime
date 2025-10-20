@@ -2,6 +2,7 @@ package com.AbdoAlabhar.TimeLimiter;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -54,5 +55,23 @@ public class CountdownCommand {
                                 })
                         )
         );
+        dispatcher.register(
+                Commands.literal("setGlobalTimezone")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("zone", StringArgumentType.string())
+                                .executes(ctx -> {
+                                    String zone = StringArgumentType.getString(ctx, "zone");
+                                    CountdownConfigData data = TimeLimiter.getNotifier().savedConfig;
+                                    data.setGlobalTimezone(zone);
+
+                                    ctx.getSource().sendSuccess(
+                                            () -> Component.literal("Global timezone set to " + zone),
+                                            true
+                                    );
+                                    return 1;
+                                })
+                        )
+        );
+
     }
 }
