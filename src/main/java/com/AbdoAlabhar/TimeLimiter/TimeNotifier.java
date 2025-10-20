@@ -8,6 +8,9 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -61,16 +64,28 @@ public class TimeNotifier {
         return savedConfig != null ? savedConfig.getRemainingMillis(uuid) : (long) getCountdownSeconds() * 1000L;
     }
 
+    public void setStackableDays(int days) {
+        if (savedConfig != null) savedConfig.setStackableDays(days);
+    }
+
+    public int getStackableDays() {
+        return savedConfig != null ? savedConfig.getStackableDays() : 3;
+    }
+
+
+
+
+
     // ---------------- events ----------------
 
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         UUID uuid = player.getUUID();
-
         // load persisted remaining into runtime map (or full duration if absent)
         long persisted = savedConfig.getRemainingMillis(uuid);
         remainingMillis.put(uuid, persisted);
+
 
         // optional user feedback
         player.sendSystemMessage(Component.literal("Countdown started!"), true);
@@ -90,26 +105,68 @@ public class TimeNotifier {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
-        // iterate copy of keys to avoid concurrent modification
+        if (savedConfig != null && savedConfig.shouldReset()) {
+            long baseMillis = (long) savedConfig.getCountdownSeconds() * 1000L;
+            long cap = baseMillis * savedConfig.getStackableDays();
+
+            LocalDate last = savedConfig.getLastResetDate();
+            LocalDate today = LocalDate.now(ZoneId.systemDefault());
+            long daysSinceLastReset = (last == null) ? Long.MAX_VALUE :
+                    ChronoUnit.DAYS.between(last, today);
+
+            // Debug log
+            // LOGGER.info("Reset check: last={}, today={}, daysSinceLastReset={}, stackableDays={}",
+            //         last, today, daysSinceLastReset, savedConfig.getStackableDays());
+
+            // iterate all saved players so offline players also get handled
+            for (String key : savedConfig.getSavedPlayerKeys()) {
+                try {
+                    UUID uuid = UUID.fromString(key);
+                    long current = savedConfig.getRemainingMillis(uuid);
+
+                    if (daysSinceLastReset >= savedConfig.getStackableDays()) {
+                        // stack window expired → reset to base daily amount (NOT stacked)
+                        current = baseMillis;
+                        // LOGGER.info("Reset expired for {}, resetting to base {}", uuid, baseMillis);
+                    } else {
+                        // within stack window → add one day's allotment, capped
+                        current = Math.min(cap, current + baseMillis);
+                        // LOGGER.info("Stacking for {}, next = {}", uuid, current);
+                    }
+
+                    savedConfig.setRemainingMillis(uuid, current);
+
+                    // update runtime map if player currently online
+                    if (remainingMillis.containsKey(uuid)) {
+                        remainingMillis.put(uuid, current);
+                    }
+                } catch (IllegalArgumentException ex) {
+                    // invalid UUID string — skip
+                    // LOGGER.warn("Invalid saved player key: {}", key);
+                }
+            }
+
+            // mark reset date to today so we don't run again till next calendar boundary
+            savedConfig.markReset();
+        }
+
+        // --- existing decrement logic (unchanged) ---
         UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
         for (UUID uuid : keys) {
-            // only decrement if player online
             ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
             if (player == null) continue;
 
             long rem = remainingMillis.getOrDefault(uuid, (long) getCountdownSeconds() * 1000L);
             rem -= TICK_MS;
-            long totalMillis = (long) getCountdownSeconds() * 1000L;
 
             if (rem <= 0L) {
-                // finished -> notify and reset
                 player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
-                rem = totalMillis; // reset for repeating
+                rem = (long) getCountdownSeconds() * 1000L; // repeating behaviour
             }
 
             remainingMillis.put(uuid, rem);
-            // persist the updated remaining so quitting saves current resume point
             if (savedConfig != null) savedConfig.setRemainingMillis(uuid, rem);
         }
     }
+
 }

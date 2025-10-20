@@ -36,5 +36,23 @@ public class CountdownCommand {
                                 })
                         )
         );
+        dispatcher.register(
+                Commands.literal("setStackableDays")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("days", IntegerArgumentType.integer(1))
+                                .executes(ctx -> {
+                                    int days = IntegerArgumentType.getInteger(ctx, "days");
+                                    TimeNotifier notifier = TimeLimiter.getNotifier();
+                                    if (notifier != null) {
+                                        notifier.setStackableDays(days); // you need to implement this in TimeNotifier
+                                    }
+                                    ctx.getSource().sendSuccess(
+                                            () -> Component.literal("Stackable Days set to " + days),
+                                            true
+                                    );
+                                    return 1;
+                                })
+                        )
+        );
     }
 }

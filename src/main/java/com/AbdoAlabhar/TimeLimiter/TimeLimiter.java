@@ -61,23 +61,6 @@ public class TimeLimiter {
     /** Register commands using RegisterCommandsEvent to ensure dispatcher is available */
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
-        event.getDispatcher().register(
-                Commands.literal("setcountdown")
-                        .requires(cs -> cs.hasPermission(2)) // ops only
-                        .then(Commands.argument("seconds", IntegerArgumentType.integer(1))
-                                .executes(ctx -> {
-                                    int sec = IntegerArgumentType.getInteger(ctx, "seconds");
-                                    if (notifier != null) {
-                                        notifier.setCountdownSeconds(sec);
-                                    }
-                                    ctx.getSource().sendSuccess(
-                                            () -> net.minecraft.network.chat.Component.literal("Countdown set to " + sec + " seconds"),
-                                            true
-                                    );
-                                    return 1;
-                                })
-                        )
-        );
     }
 
     public static TimeNotifier getNotifier() {

@@ -3,15 +3,18 @@ package com.AbdoAlabhar.TimeLimiter;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.saveddata.SavedData;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class CountdownConfigData extends SavedData {
 
-    private int countdownSeconds = 600; // default playtime in seconds
+    private int stackableDays = 3;                 // persisted stackable days (was StackableDays)
+    private int countdownSeconds = 3600;          // default playtime in seconds
     private final Map<String, Long> remainingMap = new HashMap<>(); // uuidStr -> remainingMillis
-    private long lastResetTime = 0; // timestamp of last reset in millis
+    private LocalDate lastResetDate = null;       // last reset date
 
     public CountdownConfigData() {}
 
@@ -25,6 +28,16 @@ public class CountdownConfigData extends SavedData {
         setDirty();
     }
 
+    // stackableDays getter/setter
+    public int getStackableDays() {
+        return Math.max(1, stackableDays);
+    }
+
+    public void setStackableDays(int days) {
+        stackableDays = Math.max(1, days);
+        setDirty();
+    }
+
     public long getRemainingMillis(UUID uuid) {
         return remainingMap.getOrDefault(uuid.toString(), (long) getCountdownSeconds() * 1000L);
     }
@@ -34,29 +47,31 @@ public class CountdownConfigData extends SavedData {
         setDirty();
     }
 
-    // --- Stackable time helpers ---
     public void addRemainingMillis(UUID uuid, long extraMillis) {
         long current = getRemainingMillis(uuid);
         setRemainingMillis(uuid, current + extraMillis);
     }
 
-    public void reduceRemainingMillis(UUID uuid, long millis) {
-        long current = getRemainingMillis(uuid);
-        setRemainingMillis(uuid, Math.max(0L, current - millis));
-    }
-    public void resetRemainingMillis(UUID uuid) {
-        setRemainingMillis(uuid, (long) getCountdownSeconds() * 1000L);
+    // --- Calendar-based reset helpers ---
+    public boolean shouldReset() {
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
+        if (lastResetDate == null) {
+            // initialize to today (avoid immediate reset on first load)
+            lastResetDate = today;
+            setDirty();
+            return false;
+        }
+        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(lastResetDate, today);
+        return daysBetween >= 1; // run reset once per calendar day boundary (adjust if you want >=2)
     }
 
-    // --- Reset tracking ---
-    public boolean shouldReset(long currentTimeMillis) {
-        // if 2 days have passed since last reset
-        return currentTimeMillis - lastResetTime >= 2L * 24 * 60 * 60 * 1000;
-    }
-
-    public void markReset(long currentTimeMillis) {
-        lastResetTime = currentTimeMillis;
+    public void markReset() {
+        lastResetDate = LocalDate.now(ZoneId.systemDefault());
         setDirty();
+    }
+
+    public LocalDate getLastResetDate() {
+        return lastResetDate;
     }
 
     public void removePlayer(UUID uuid) {
@@ -64,11 +79,15 @@ public class CountdownConfigData extends SavedData {
         setDirty();
     }
 
+    public Iterable<String> getSavedPlayerKeys() {
+        return remainingMap.keySet();
+    }
     // --- NBT saving/loading ---
     @Override
     public CompoundTag save(CompoundTag nbt) {
         nbt.putInt("CountdownSeconds", countdownSeconds);
-        nbt.putLong("LastResetTime", lastResetTime);
+        nbt.putInt("StackableDays", stackableDays);
+        if (lastResetDate != null) nbt.putString("LastResetDate", lastResetDate.toString());
 
         CompoundTag playersTag = new CompoundTag();
         for (Map.Entry<String, Long> e : remainingMap.entrySet()) {
@@ -81,7 +100,10 @@ public class CountdownConfigData extends SavedData {
     public static CountdownConfigData load(CompoundTag nbt) {
         CountdownConfigData d = new CountdownConfigData();
         if (nbt.contains("CountdownSeconds")) d.countdownSeconds = nbt.getInt("CountdownSeconds");
-        if (nbt.contains("LastResetTime")) d.lastResetTime = nbt.getLong("LastResetTime");
+        if (nbt.contains("StackableDays")) d.stackableDays = nbt.getInt("StackableDays");
+        if (nbt.contains("LastResetDate")) d.lastResetDate = LocalDate.parse(nbt.getString("LastResetDate"));
+        // if LastResetDate missing we leave it null so shouldReset() can initialize or you can set default here
+
         if (nbt.contains("PlayerRemaining")) {
             CompoundTag playersTag = nbt.getCompound("PlayerRemaining");
             for (String key : playersTag.getAllKeys()) {
