@@ -1,4 +1,4 @@
-package com.AbdoAlabhar.TimeLimiter;
+package com.AbdoAlabhar.LimitedTime;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
@@ -22,7 +22,7 @@ public class ClientOverlay {
         GuiGraphics g = event.getGuiGraphics();
         if (mc.player == null) return;
 
-        TimeNotifier notifier = TimeLimiter.getNotifier();
+        TimeNotifier notifier = LimitedTime.getNotifier();
         if (notifier == null) return;
 
         long remainingMillis = notifier.getRemainingMillis(mc.player.getUUID());
@@ -60,7 +60,7 @@ public class ClientOverlay {
             int overlayWidth = (int) (innerWidth * extraProgress);
 
             // Dark blue → dark green gradient
-            float overlayHue = (float) (0.6f - 0.27f * extraProgress); // 0.6 = dark blue, 0.33 = dark green
+            float overlayHue = (float) (0.33f - 0.6f * extraProgress); // 0.6 = dark blue, 0.33 = dark green
             float saturation = 1.0f;
             float brightness = 0.5f; // darker
             java.awt.Color overlayColorObj = java.awt.Color.getHSBColor(overlayHue, saturation, brightness);
@@ -71,7 +71,7 @@ public class ClientOverlay {
 
 
         // --- Region time ---
-        CountdownConfigData data = TimeLimiter.getNotifier().savedConfig;
+        CountdownConfigData data = LimitedTime.getNotifier().savedConfig;
         ZonedDateTime now = ZonedDateTime.now(data.getGlobalTimezone());
         String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm")) + " (" + data.getGlobalTimezone().toString() + ")";
 

@@ -1,4 +1,4 @@
-package com.AbdoAlabhar.TimeLimiter;
+package com.AbdoAlabhar.LimitedTime;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -102,14 +102,18 @@ public class TimeNotifier {
         UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
         for (UUID uuid : keys) {
             ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
-            if (player == null) continue; // only decrement for online players
+            if (player == null) continue; // only decrement online players
 
-            long rem = remainingMillis.getOrDefault(uuid, savedConfig.getRemainingMillis(uuid));
+            // Skip players who have not logged in at least once
+            if (!remainingMillis.containsKey(uuid)) continue;
+
+            long rem = remainingMillis.get(uuid);
             rem -= TICK_MS;
 
             if (rem <= 0L) {
                 player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
-                // after finishing a cycle run, we reload the calendar-computed remaining
+                player.connection.disconnect(Component.literal("Time is up!"));
+                // recompute for next session
                 long recomputed = savedConfig.computeAndGetRemainingMillis(uuid);
                 rem = recomputed;
             }

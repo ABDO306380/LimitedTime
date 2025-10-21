@@ -1,4 +1,4 @@
-package com.AbdoAlabhar.TimeLimiter;
+package com.AbdoAlabhar.LimitedTime;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.saveddata.SavedData;

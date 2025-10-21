@@ -1,12 +1,8 @@
-package com.AbdoAlabhar.TimeLimiter;
+package com.AbdoAlabhar.LimitedTime;
 
 import com.mojang.logging.LogUtils;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
-import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.MinecraftServer;
-import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
@@ -20,8 +16,8 @@ import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
-@Mod(TimeLimiter.MODID)
-public class TimeLimiter {
+@Mod(LimitedTime.MODID)
+public class LimitedTime {
 
     public static final String MODID = "timelimiter";
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -29,7 +25,7 @@ public class TimeLimiter {
     // singleton notifier (server-side)
     private static TimeNotifier notifier;
 
-    public TimeLimiter() {
+    public LimitedTime() {
         IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
         bus.addListener(this::commonSetup);
         bus.addListener(this::clientSetup);
