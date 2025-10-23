@@ -8,6 +8,7 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -65,6 +66,29 @@ public class TimeNotifier {
             return computed;
         }
         return (long) getCountdownSeconds() * 1000L;
+    }
+
+    public void resetAllCountdowns() {
+        if (savedConfig == null) return;
+
+        long baseMillis = (long) getCountdownSeconds() * 1000L;
+
+        // iterate saved players (includes offline players)
+        for (String key : savedConfig.getSavedPlayerKeys()) {
+            try {
+                UUID uuid = UUID.fromString(key);
+                // set persistent value (persist happens in savedConfig.setRemainingMillis)
+                savedConfig.setRemainingMillis(uuid, baseMillis);
+
+                // sync runtime cache if online / present
+                if (remainingMillis.containsKey(uuid)) {
+                    savedConfig.markReset(uuid); // sets anchor to today
+                    remainingMillis.put(uuid, baseMillis);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // skip any garbage keys
+            }
+        }
     }
 
     // ---------------- events ----------------

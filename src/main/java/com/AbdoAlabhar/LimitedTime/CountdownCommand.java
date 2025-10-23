@@ -65,6 +65,18 @@ public class CountdownCommand {
                                         })
                                 )
                         )
+                        .then(Commands.literal("resetAllCountdowns")
+                                .executes(ctx -> {
+                                    TimeNotifier notifier = LimitedTime.getNotifier();
+                                    if (notifier != null)notifier.resetAllCountdowns();
+
+                                    ctx.getSource().sendSuccess(
+                                            () -> Component.literal("All Timers Reset!"),
+                                            true
+                                    );
+                                    return 1;
+                                })
+                        )
         );
 
     }
