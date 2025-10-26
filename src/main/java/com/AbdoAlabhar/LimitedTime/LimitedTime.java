@@ -32,6 +32,8 @@ public class LimitedTime {
 
         MinecraftForge.EVENT_BUS.register(this);
 
+        LimitedTimeNetwork.register();
+
         // register config if you use one elsewhere (optional)
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }

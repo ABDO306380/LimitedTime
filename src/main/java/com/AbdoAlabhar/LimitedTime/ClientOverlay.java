@@ -10,6 +10,7 @@ import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -22,11 +23,17 @@ public class ClientOverlay {
         GuiGraphics g = event.getGuiGraphics();
         if (mc.player == null) return;
 
-        TimeNotifier notifier = LimitedTime.getNotifier();
-        if (notifier == null) return;
+        // Use ClientTimeData instead of server-side notifier
+        long remainingMillis = ClientTimeData.getRemainingMillis();
+        String timezoneStr = ClientTimeData.getTimezone();
 
-        long remainingMillis = notifier.getRemainingMillis(mc.player.getUUID());
-        long baseMillis = notifier.getCountdownSeconds() * 1000L;
+        // If we don't have valid data yet, don't render
+        if (remainingMillis <= 0 && timezoneStr.equals("UTC")) {
+            return;
+        }
+
+        // Use a default base time if we can't get from server
+        long baseMillis = 3600 * 1000L; // default 1 hour
 
         // Extra time above base
         long extraMillis = Math.max(0, remainingMillis - baseMillis);
@@ -69,19 +76,21 @@ public class ClientOverlay {
             g.fill(innerX, innerY, innerX + overlayWidth, innerY + innerHeight, overlayColor);
         }
 
-
         // --- Region time ---
-        CountdownConfigData data = LimitedTime.getNotifier().savedConfig;
-        ZonedDateTime now = ZonedDateTime.now(data.getGlobalTimezone());
-        String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm")) + " (" + data.getGlobalTimezone().toString() + ")";
-
+        ZoneId zoneId;
+        try {
+            zoneId = ZoneId.of(timezoneStr);
+        } catch (Exception e) {
+            zoneId = ZoneId.systemDefault();
+        }
+        ZonedDateTime now = ZonedDateTime.now(zoneId);
+        String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm")) + " (" + timezoneStr + ")";
 
         float scale = 0.9f;
         g.pose().pushPose();
         g.pose().scale(scale, scale, 1);
         g.drawString(mc.font, Component.literal(regionTime), (int) ((bgX + 6) / scale), (int) ((bgY + 4) / scale), 0xFFFFFF, true);
         g.pose().popPose();
-
 
         // --- Countdown text ---
         long countdownMillis = remainingMillis;
@@ -98,5 +107,4 @@ public class ClientOverlay {
         g.drawString(mc.font, Component.literal(countdown), (int) ((bgX + 10) / scale), (int) ((bgY + 12) / scale), 0xFFFFFF, true);
         g.pose().popPose();
     }
-
 }

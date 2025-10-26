@@ -7,6 +7,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.network.PacketDistributor;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -133,6 +134,14 @@ public class TimeNotifier {
 
             long rem = remainingMillis.get(uuid);
             rem -= TICK_MS;
+
+            // Debug output
+            System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms");
+
+            LimitedTimeNetwork.CHANNEL.send(
+                    PacketDistributor.PLAYER.with(() -> player),
+                    new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString())
+            );
 
             if (rem <= 0L) {
                 player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
