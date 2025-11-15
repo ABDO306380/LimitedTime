@@ -160,9 +160,4 @@ public class TimeNotifier {
             }
         }
     }
-
-    public boolean isFrozenForPlayer(UUID uuid) { return savedConfig.isFrozenForPlayer(uuid);}
-
-    public void setTimeCountingStateForPlayer(UUID uuid, boolean b) {
-    }
 }
