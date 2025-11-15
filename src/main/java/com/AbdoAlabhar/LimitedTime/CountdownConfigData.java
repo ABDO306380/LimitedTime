@@ -14,76 +14,25 @@ public class CountdownConfigData extends SavedData {
 
     private int stackableDays = 3; // max stackable days
     private int countdownSeconds = 3600; // base daily playtime in
-
+    private boolean isFrozenGlobally= true; //time is frozen
+    private String globalTimezone = null; // null = server default
 
     // persisted player maps (keys are UUID strings)
     private final Map<String, Long> remainingMap = new HashMap<>(); // uuid -> remainingMillis
     private final Map<String, LocalDate> anchorDate = new HashMap<>(); // uuid -> first-join or cycle-anchor date
-    private String globalTimezone = null; // null = server default
 
-    public void setGlobalTimezone(String zoneId) {
-        globalTimezone = zoneId;
-        setDirty();
-    }
-
-    public ZoneId getGlobalTimezone() {
-        if (globalTimezone == null || globalTimezone.isEmpty()) return ZoneId.systemDefault();
-        try {
-            return ZoneId.of(globalTimezone);
-        } catch (Exception e) {
-            return ZoneId.systemDefault();
-        }
-    }
-
-    public CountdownConfigData() {}
-
-    // --- getters / setters for global config ---
+    //-- Get/Set for timer control--
     public int getCountdownSeconds() { return countdownSeconds; }
     public void setCountdownSeconds(int seconds) {
         countdownSeconds = Math.max(1, seconds);
         setDirty();
     }
-
-    public int getStackableDays() { return Math.max(1, stackableDays); }
-    public void setStackableDays(int days) {
-        stackableDays = Math.max(1, days);
-        setDirty();
+    public void setRemainingMillis(UUID uuid, long millis) {
+        remainingMap.put(uuid.toString(), Math.max(0L, millis));setDirty();
     }
-
-    // --- anchor / first-join helpers ---
-    /** Ensure a player has an anchor date (first join). Does not override an existing anchor. */
-    public void markFirstJoin(UUID uuid) {
-        String k = uuid.toString();
-        if (!anchorDate.containsKey(k)) {
-            anchorDate.put(k, LocalDate.now(getGlobalTimezone()));
-            setDirty();
-        }
+    public long getRemainingMillis(UUID uuid) {
+        return computeAndGetRemainingMillis(uuid);
     }
-
-    /** Force set anchor to today (used when admin/cycle reset is desired). */
-    public void markReset(UUID uuid) {
-        anchorDate.put(uuid.toString(), LocalDate.now(ZoneId.systemDefault()));
-        setDirty();
-    }
-
-    public LocalDate getAnchorDate(UUID uuid) {
-        return anchorDate.get(uuid.toString());
-    }
-
-    // --- remaining millis accessors ---
-    /**
-     * Compute remaining millis for uuid based on anchor date and stack logic, persist it and return value.
-     * This is the canonical place where calendar-based stacking is applied.
-     *
-     * Important: this now auto-advances the anchor by whole cycles (stackableDays) if full cycles passed,
-     * so the anchor doesn't drift and daysSince stays within [0, stackableDays-1].
-     */
-    /**
-     * Canonical calendar-based recompute that:
-     *  - auto-advances anchor by full cycles
-     *  - applies day-by-day additions to the player's existing remaining millis
-     *  - resets to base when a full cycle completes
-     */
     public long computeAndGetRemainingMillis(UUID uuid) {
         String k = uuid.toString();
         LocalDate today = LocalDate.now(getGlobalTimezone());
@@ -137,23 +86,55 @@ public class CountdownConfigData extends SavedData {
         return remainingMap.get(k);
     }
 
-    /**
-     * Get remaining millis (always recomputes based on calendar to be server/offline-safe).
-     * Use this where you need authoritative remaining time.
-     */
-    public long getRemainingMillis(UUID uuid) {
-        return computeAndGetRemainingMillis(uuid);
-    }
-
-    public void setRemainingMillis(UUID uuid, long millis) {
-        remainingMap.put(uuid.toString(), Math.max(0L, millis));
+    //-- Get/Set for stackable days
+    public int getStackableDays() { return Math.max(1, stackableDays); }
+    public void setStackableDays(int days) {
+        stackableDays = Math.max(1, days);
         setDirty();
     }
 
+    //-- Get/Set for Timezone
+    public void setGlobalTimezone(String zoneId) {
+        globalTimezone = zoneId;
+        setDirty();
+    }
+    public LocalDate getAnchorDate(UUID uuid) {
+        return anchorDate.get(uuid.toString());
+    }
+    public ZoneId getGlobalTimezone() {
+        if (globalTimezone == null || globalTimezone.isEmpty()) return ZoneId.systemDefault();
+        try {
+            return ZoneId.of(globalTimezone);
+        } catch (Exception e) {
+            return ZoneId.systemDefault();
+        }
+    }
+
+    //-- Get/Set for Freeze or Unfreeze Time Globally--
+    public boolean isFrozenGlobally() {
+        return isFrozenGlobally;
+    }
+    public void setTimeCountingStateGlobally(boolean isFrozenGlobally) {
+        this.isFrozenGlobally = isFrozenGlobally;
+    }
+
+    //Mark or reset last day joined
+    public void markFirstJoin(UUID uuid) {
+        String k = uuid.toString();
+        if (!anchorDate.containsKey(k)) {
+            anchorDate.put(k, LocalDate.now(getGlobalTimezone()));
+            setDirty();
+        }
+    }
+    public void markReset(UUID uuid) {
+        anchorDate.put(uuid.toString(), LocalDate.now(ZoneId.systemDefault()));
+        setDirty();
+    }
+
+    //player keys
     public Iterable<String> getSavedPlayerKeys() {
         return remainingMap.keySet();
     }
-
     public void removePlayer(UUID uuid) {
         String k = uuid.toString();
         remainingMap.remove(k);
@@ -166,6 +147,7 @@ public class CountdownConfigData extends SavedData {
     public CompoundTag save(CompoundTag nbt) {
         nbt.putInt("CountdownSeconds", countdownSeconds);
         nbt.putInt("StackableDays", stackableDays);
+        nbt.putBoolean("IsFrozenGlobally", isFrozenGlobally);
 
         if (globalTimezone != null) nbt.putString("GlobalTimezone", globalTimezone);
 
@@ -189,14 +171,12 @@ public class CountdownConfigData extends SavedData {
         if (nbt.contains("GlobalTimezone")) d.globalTimezone = nbt.getString("GlobalTimezone");
         if (nbt.contains("CountdownSeconds")) d.countdownSeconds = nbt.getInt("CountdownSeconds");
         if (nbt.contains("StackableDays")) d.stackableDays = nbt.getInt("StackableDays");
-
         if (nbt.contains("PlayerRemaining")) {
             CompoundTag playersTag = nbt.getCompound("PlayerRemaining");
             for (String key : playersTag.getAllKeys()) {
                 d.remainingMap.put(key, playersTag.getLong(key));
             }
         }
-
         if (nbt.contains("PlayerAnchorDate")) {
             CompoundTag anchorTag = nbt.getCompound("PlayerAnchorDate");
             for (String key : anchorTag.getAllKeys()) {
@@ -206,6 +186,7 @@ public class CountdownConfigData extends SavedData {
                 }
             }
         }
+        if (nbt.contains("IsFrozenGlobally")){d.isFrozenGlobally = nbt.getBoolean("IsFrozenGlobally");}
 
         return d;
     }

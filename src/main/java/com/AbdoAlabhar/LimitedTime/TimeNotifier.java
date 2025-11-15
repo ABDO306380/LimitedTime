@@ -9,7 +9,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.network.PacketDistributor;
 
-import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -31,11 +30,10 @@ public class TimeNotifier {
         MinecraftForge.EVENT_BUS.register(this);
     }
 
-    // proxy/global accessors (so commands keep working)
+    //--Get/Set Timer--
     public int getCountdownSeconds() {
         return savedConfig != null ? savedConfig.getCountdownSeconds() : 10;
     }
-
     public void setCountdownSeconds(int seconds) {
         if (savedConfig != null) {
             savedConfig.setCountdownSeconds(seconds);
@@ -49,16 +47,6 @@ public class TimeNotifier {
             }
         }
     }
-
-    public void setStackableDays(int days) {
-        if (savedConfig != null) savedConfig.setStackableDays(days);
-    }
-
-    public int getStackableDays() {
-        return savedConfig != null ? savedConfig.getStackableDays() : 3;
-    }
-
-    // runtime-first remaining getter. If we don't have it in memory, recompute from savedConfig (calendar-safe).
     public long getRemainingMillis(UUID uuid) {
         if (remainingMillis.containsKey(uuid)) return remainingMillis.get(uuid);
         if (savedConfig != null) {
@@ -69,6 +57,24 @@ public class TimeNotifier {
         return (long) getCountdownSeconds() * 1000L;
     }
 
+    //--Get/Set Stackable days--
+    public void setStackableDays(int days) {
+        if (savedConfig != null) savedConfig.setStackableDays(days);
+    }
+    public int getStackableDays() {
+        return savedConfig != null ? savedConfig.getStackableDays() : 3;
+    }
+
+    //--Get/Set Time Freezing--
+    public boolean isFrozenGlobally(){
+        return savedConfig.isFrozenGlobally();
+    }
+    public int setTimestate(boolean isFrozen){
+        savedConfig.setTimeCountingStateGlobally(isFrozen);
+        return isFrozen ? 1:0;
+    }
+
+    //--Reset All Countdowns
     public void resetAllCountdowns() {
         if (savedConfig == null) return;
 
@@ -93,7 +99,6 @@ public class TimeNotifier {
     }
 
     // ---------------- events ----------------
-
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
@@ -110,7 +115,6 @@ public class TimeNotifier {
 
         player.sendSystemMessage(Component.literal("Playtime updated (calendar-based)."), true);
     }
-
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
@@ -119,40 +123,46 @@ public class TimeNotifier {
         savedConfig.setRemainingMillis(uuid, rem);
         // keep runtime entry (optional)
     }
-
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
-        UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
-        for (UUID uuid : keys) {
-            ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
-            if (player == null) continue; // only decrement online players
+        if (isFrozenGlobally()){
+            UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
+            for (UUID uuid : keys) {
+                ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
+                if (player == null) continue; // only decrement online players
 
-            // Skip players who have not logged in at least once
-            if (!remainingMillis.containsKey(uuid)) continue;
+                // Skip players who have not logged in at least once
+                if (!remainingMillis.containsKey(uuid)) continue;
 
-            long rem = remainingMillis.get(uuid);
-            rem -= TICK_MS;
+                long rem = remainingMillis.get(uuid);
+                rem -= TICK_MS;
 
-            // Debug output
-            System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms");
+                // Debug output
+                System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms");
 
-            LimitedTimeNetwork.CHANNEL.send(
-                    PacketDistributor.PLAYER.with(() -> player),
-                    new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString())
-            );
+                LimitedTimeNetwork.CHANNEL.send(
+                        PacketDistributor.PLAYER.with(() -> player),
+                        new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString())
+                );
 
-            if (rem <= 0L) {
-                player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
-                player.connection.disconnect(Component.literal("Time is up!"));
-                // recompute for next session
-                long recomputed = savedConfig.computeAndGetRemainingMillis(uuid);
-                rem = recomputed;
+                if (rem <= 0L) {
+                    player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
+                    player.connection.disconnect(Component.literal("Time is up!"));
+                    // recompute for next session
+                    long recomputed = savedConfig.computeAndGetRemainingMillis(uuid);
+                    rem = recomputed;
+                }
+
+                remainingMillis.put(uuid, rem);
+                savedConfig.setRemainingMillis(uuid, rem);
             }
-
-            remainingMillis.put(uuid, rem);
-            savedConfig.setRemainingMillis(uuid, rem);
         }
+    }
+
+    public boolean isFrozenForPlayer(UUID uuid) { return savedConfig.isFrozenForPlayer(uuid);}
+
+    public void setTimeCountingStateForPlayer(UUID uuid, boolean b) {
     }
 }
