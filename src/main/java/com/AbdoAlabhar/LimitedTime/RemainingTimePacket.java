@@ -10,18 +10,21 @@ public class RemainingTimePacket {
     private final UUID playerUUID;
     private final long remainingMillis;
     private final String timezone;
+    private final long baseMillis;
 
-    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone) {
+    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, long baseMillis) {
         this.playerUUID = playerUUID;
         this.remainingMillis = remainingMillis;
         this.timezone = timezone;
+        this.baseMillis = baseMillis;
     }
 
     // Decode from buffer
     public RemainingTimePacket(FriendlyByteBuf buf) {
         this.playerUUID = buf.readUUID();
         this.remainingMillis = buf.readLong();
-        this.timezone = buf.readUtf(50); // max length
+        this.timezone = buf.readUtf(50);
+        this.baseMillis = buf.readLong();
     }
 
     // Encode to buffer
@@ -29,6 +32,7 @@ public class RemainingTimePacket {
         buf.writeUUID(playerUUID);
         buf.writeLong(remainingMillis);
         buf.writeUtf(timezone);
+        buf.writeLong(baseMillis);
     }
 
     // Handler for client
@@ -36,10 +40,9 @@ public class RemainingTimePacket {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ctx.enqueueWork(() -> {
             // Update client-side data for overlay
-            ClientTimeData.update(playerUUID, remainingMillis, timezone);
-            System.out.println("Player " + playerUUID + " has " + remainingMillis + " ms left in " + timezone);
+            ClientTimeData.update(playerUUID, remainingMillis, timezone, baseMillis);
+            System.out.println("Player " + playerUUID + " has " + remainingMillis + " ms left in " + timezone + ", base: " + baseMillis + "ms");
         });
         ctx.setPacketHandled(true);
     }
 }
-

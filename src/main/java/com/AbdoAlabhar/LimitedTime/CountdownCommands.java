@@ -86,7 +86,7 @@ public class CountdownCommands {
                                     if (notifier != null) {
                                         boolean currentlyFrozen = notifier.isFrozenGlobally();
                                         notifier.setTimestate(!currentlyFrozen);
-                                        String msg = !currentlyFrozen ? "All Timers Now Ticking!" : "All Timers Frozen!";
+                                        String msg = !currentlyFrozen ? "All Timers Now Frozen!" : "All Timers Now Ticking!";
                                         ctx.getSource().sendSuccess(() -> Component.literal(msg), true);
                                     }
                                     return Command.SINGLE_SUCCESS;

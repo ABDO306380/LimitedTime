@@ -123,34 +123,34 @@ public class TimeNotifier {
         savedConfig.setRemainingMillis(uuid, rem);
         // keep runtime entry (optional)
     }
+    // In the onServerTick method, modify the packet sending:
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
-        if (isFrozenGlobally()){
+        if (!isFrozenGlobally()) {
             UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
             for (UUID uuid : keys) {
                 ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
-                if (player == null) continue; // only decrement online players
+                if (player == null) continue;
 
-                // Skip players who have not logged in at least once
                 if (!remainingMillis.containsKey(uuid)) continue;
 
                 long rem = remainingMillis.get(uuid);
                 rem -= TICK_MS;
 
-                // Debug output
-                System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms");
+                long baseMillis = (long) getCountdownSeconds() * 1000L;
+
+                System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms, base: " + baseMillis + "ms");
 
                 LimitedTimeNetwork.CHANNEL.send(
                         PacketDistributor.PLAYER.with(() -> player),
-                        new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString())
+                        new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString(), baseMillis)
                 );
 
                 if (rem <= 0L) {
                     player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
                     player.connection.disconnect(Component.literal("Time is up!"));
-                    // recompute for next session
                     long recomputed = savedConfig.computeAndGetRemainingMillis(uuid);
                     rem = recomputed;
                 }

@@ -12,14 +12,14 @@ import java.util.UUID;
 
 public class CountdownConfigData extends SavedData {
 
-    private int stackableDays = 3; // max stackable days
-    private int countdownSeconds = 3600; // base daily playtime in
-    private boolean isFrozenGlobally= true; //time is frozen
-    private String globalTimezone = null; // null = server default
+    private int stackableDays = 3;
+    private int countdownSeconds = 3600;
+    private boolean isFrozenGlobally= true;
+    private String globalTimezone = null;
 
     // persisted player maps (keys are UUID strings)
-    private final Map<String, Long> remainingMap = new HashMap<>(); // uuid -> remainingMillis
-    private final Map<String, LocalDate> anchorDate = new HashMap<>(); // uuid -> first-join or cycle-anchor date
+    private final Map<String, Long> remainingMap = new HashMap<>();
+    private final Map<String, LocalDate> anchorDate = new HashMap<>();
 
     //-- Get/Set for timer control--
     public int getCountdownSeconds() { return countdownSeconds; }
