@@ -108,10 +108,9 @@ public class TimeNotifier {
         savedConfig.markFirstJoin(uuid);
 
         // recompute remaining based on calendar (works even if server was offline)
+        // computeAndGetRemainingMillis already persists the result internally
         long rem = savedConfig.computeAndGetRemainingMillis(uuid);
         remainingMillis.put(uuid, rem);
-        // persist (so NBT has fresh value)
-        savedConfig.setRemainingMillis(uuid, rem);
 
         player.sendSystemMessage(Component.literal("Playtime updated (calendar-based)."), true);
     }
