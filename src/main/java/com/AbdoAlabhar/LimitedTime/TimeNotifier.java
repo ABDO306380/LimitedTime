@@ -112,7 +112,15 @@ public class TimeNotifier {
         long rem = savedConfig.computeAndGetRemainingMillis(uuid);
         remainingMillis.put(uuid, rem);
 
+        long baseMillis = (long) getCountdownSeconds() * 1000L;
+
         player.sendSystemMessage(Component.literal("Playtime updated (calendar-based)."), true);
+
+        // In onPlayerLogin method, update the packet creation:
+        LimitedTimeNetwork.CHANNEL.send(
+                PacketDistributor.PLAYER.with(() -> player),
+                new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString(), baseMillis, isFrozenGlobally()) // ADD isFrozen
+        );
     }
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
@@ -120,7 +128,6 @@ public class TimeNotifier {
         UUID uuid = player.getUUID();
         long rem = remainingMillis.getOrDefault(uuid, savedConfig.getRemainingMillis(uuid));
         savedConfig.setRemainingMillis(uuid, rem);
-        // keep runtime entry (optional)
     }
     // In the onServerTick method, modify the packet sending:
     @SubscribeEvent
@@ -141,11 +148,6 @@ public class TimeNotifier {
                 long baseMillis = (long) getCountdownSeconds() * 1000L;
 
                 System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms, base: " + baseMillis + "ms");
-
-                LimitedTimeNetwork.CHANNEL.send(
-                        PacketDistributor.PLAYER.with(() -> player),
-                        new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString(), baseMillis)
-                );
 
                 if (rem <= 0L) {
                     player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);

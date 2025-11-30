@@ -11,12 +11,14 @@ public class RemainingTimePacket {
     private final long remainingMillis;
     private final String timezone;
     private final long baseMillis;
+    private final boolean isFrozen; // NEW: Include frozen state
 
-    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, long baseMillis) {
+    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, long baseMillis, boolean isFrozen) {
         this.playerUUID = playerUUID;
         this.remainingMillis = remainingMillis;
         this.timezone = timezone;
         this.baseMillis = baseMillis;
+        this.isFrozen = isFrozen; // NEW
     }
 
     // Decode from buffer
@@ -25,6 +27,7 @@ public class RemainingTimePacket {
         this.remainingMillis = buf.readLong();
         this.timezone = buf.readUtf(50);
         this.baseMillis = buf.readLong();
+        this.isFrozen = buf.readBoolean(); // NEW
     }
 
     // Encode to buffer
@@ -33,6 +36,7 @@ public class RemainingTimePacket {
         buf.writeLong(remainingMillis);
         buf.writeUtf(timezone);
         buf.writeLong(baseMillis);
+        buf.writeBoolean(isFrozen); // NEW
     }
 
     // Handler for client
@@ -40,8 +44,8 @@ public class RemainingTimePacket {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ctx.enqueueWork(() -> {
             // Update client-side data for overlay
-            ClientTimeData.update(playerUUID, remainingMillis, timezone, baseMillis);
-            System.out.println("Player " + playerUUID + " has " + remainingMillis + " ms left in " + timezone + ", base: " + baseMillis + "ms");
+            ClientTimeData.update(playerUUID, remainingMillis, timezone, baseMillis, isFrozen); // UPDATED
+            System.out.println("Player " + playerUUID + " has " + remainingMillis + " ms left in " + timezone + ", base: " + baseMillis + "ms, frozen: " + isFrozen);
         });
         ctx.setPacketHandled(true);
     }
