@@ -24,18 +24,14 @@ public class CountdownCommands {
 
         dispatcher.register(
                 Commands.literal("TimeControl")
-                        .requires(source -> source.hasPermission(2)) // OPs only
-                        //setCountdown
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("setCountdown")
                                 .then(Commands.argument("seconds", IntegerArgumentType.integer(1))
                                         .executes(ctx -> {
                                             int seconds = IntegerArgumentType.getInteger(ctx, "seconds");
                                             TimeNotifier notifier = LimitedTime.getNotifier();
                                             notifier.setCountdownSeconds(seconds);
-
-                                            // Send update to all online players
                                             sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), notifier);
-
                                             ctx.getSource().sendSuccess(
                                                     () -> Component.literal("Countdown set to " + seconds + " seconds"),
                                                     true
@@ -44,17 +40,13 @@ public class CountdownCommands {
                                         })
                                 )
                         )
-                        //setStackableDays
                         .then(Commands.literal("setStackableDays")
                                 .then(Commands.argument("days", IntegerArgumentType.integer(1))
                                         .executes(ctx -> {
                                             int days = IntegerArgumentType.getInteger(ctx, "days");
                                             TimeNotifier notifier = LimitedTime.getNotifier();
                                             notifier.setStackableDays(days);
-
-                                            // Send update to all online players
                                             sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), notifier);
-
                                             ctx.getSource().sendSuccess(
                                                     () -> Component.literal("Stackable Days set to " + days),
                                                     true
@@ -63,17 +55,13 @@ public class CountdownCommands {
                                         })
                                 )
                         )
-                        //setGlobalTimezone
                         .then(Commands.literal("setGlobalTimezone")
                                 .then(Commands.argument("zone", StringArgumentType.string())
                                         .executes(ctx -> {
                                             String zone = StringArgumentType.getString(ctx, "zone");
-                                            CountdownConfigData data = LimitedTime.getNotifier().savedConfig;
-                                            data.setGlobalTimezone(zone);
-
-                                            // Send update to all online players
-                                            sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), LimitedTime.getNotifier());
-
+                                            TimeNotifier notifier = LimitedTime.getNotifier();
+                                            notifier.getConfig().setGlobalTimezone(zone);
+                                            sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), notifier);
                                             ctx.getSource().sendSuccess(
                                                     () -> Component.literal("Global timezone set to " + zone),
                                                     true
@@ -82,17 +70,13 @@ public class CountdownCommands {
                                         })
                                 )
                         )
-                        //Reset All countdowns
                         .then(Commands.literal("resetAllCountdowns")
                                 .executes(ctx -> {
                                     TimeNotifier notifier = LimitedTime.getNotifier();
                                     if (notifier != null) {
                                         notifier.resetAllCountdowns();
-
-                                        // Send update to all online players
                                         sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), notifier);
                                     }
-
                                     ctx.getSource().sendSuccess(
                                             () -> Component.literal("All Timers Reset!"),
                                             true
@@ -101,17 +85,13 @@ public class CountdownCommands {
                                 })
                         )
                         .then(Commands.literal("freezeOrUnfreezeTime")
-                                // Global toggle
                                 .executes(ctx -> {
                                     TimeNotifier notifier = LimitedTime.getNotifier();
                                     if (notifier != null) {
                                         boolean currentlyFrozen = notifier.isFrozenGlobally();
-                                        notifier.setTimestate(!currentlyFrozen);
-                                        String msg = !currentlyFrozen ? "All Timers Now Frozen!" : "All Timers Now Ticking!";
-
-                                        // Send update to all online players with new frozen state
+                                        notifier.setFrozenGlobally(!currentlyFrozen);
+                                        String msg = currentlyFrozen ? "All Timers Now Ticking!" : "All Timers Now Frozen!";
                                         sendTimeUpdateToAllPlayers(ctx.getSource().getServer(), notifier);
-
                                         ctx.getSource().sendSuccess(() -> Component.literal(msg), true);
                                     }
                                     return Command.SINGLE_SUCCESS;
@@ -120,24 +100,14 @@ public class CountdownCommands {
         );
     }
 
-    // Helper method to send time updates to all online players
     private static void sendTimeUpdateToAllPlayers(net.minecraft.server.MinecraftServer server, TimeNotifier notifier) {
         if (server == null || notifier == null) return;
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            UUID uuid = player.getUUID();
-            long rem = notifier.getRemainingMillis(uuid);
-            long baseMillis = (long) notifier.getCountdownSeconds() * 1000L;
-            boolean isFrozen = notifier.isFrozenGlobally();
-
-            LimitedTimeNetwork.CHANNEL.send(
-                    PacketDistributor.PLAYER.with(() -> player),
-                    new RemainingTimePacket(uuid, rem, notifier.savedConfig.getGlobalTimezone().toString(), baseMillis, isFrozen)
-            );
+            sendTimeUpdateToPlayer(player, notifier);
         }
     }
 
-    // Optional: Method to send update to a specific player
     private static void sendTimeUpdateToPlayer(ServerPlayer player, TimeNotifier notifier) {
         if (player == null || notifier == null) return;
 
@@ -145,10 +115,11 @@ public class CountdownCommands {
         long rem = notifier.getRemainingMillis(uuid);
         long baseMillis = (long) notifier.getCountdownSeconds() * 1000L;
         boolean isFrozen = notifier.isFrozenGlobally();
+        String tz = notifier.getConfig().getGlobalTimezone().getId();
 
         LimitedTimeNetwork.CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> player),
-                new RemainingTimePacket(uuid, rem, notifier.savedConfig.getGlobalTimezone().toString(), baseMillis, isFrozen)
+                new RemainingTimePacket(uuid, rem, tz, baseMillis, isFrozen)
         );
     }
 }

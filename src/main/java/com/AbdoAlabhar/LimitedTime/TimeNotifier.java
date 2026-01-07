@@ -9,16 +9,15 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.network.PacketDistributor;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TimeNotifier {
-
     private static final long TICK_MS = 50L;
-
-    final CountdownConfigData savedConfig;
-    private final Map<UUID, Long> remainingMillis = new HashMap<>();
+    private final CountdownConfigData savedConfig;
+    private final Map<UUID, Long> remainingMillis = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastTickTime = new ConcurrentHashMap<>();
 
     public TimeNotifier(ServerLevel world) {
         this.savedConfig = world.getDataStorage().computeIfAbsent(
@@ -26,139 +25,171 @@ public class TimeNotifier {
                 CountdownConfigData::new,
                 "timelimiter_countdown"
         );
-
         MinecraftForge.EVENT_BUS.register(this);
     }
 
-    //--Get/Set Timer--
-    public int getCountdownSeconds() {
-        return savedConfig != null ? savedConfig.getCountdownSeconds() : 10;
-    }
-    public void setCountdownSeconds(int seconds) {
-        if (savedConfig != null) {
-            savedConfig.setCountdownSeconds(seconds);
-            // clamp runtime values
-            long max = (long) getCountdownSeconds() * 1000L;
-            for (UUID u : remainingMillis.keySet()) {
-                if (remainingMillis.get(u) > max) {
-                    remainingMillis.put(u, max);
-                    savedConfig.setRemainingMillis(u, max);
-                }
-            }
-        }
-    }
-    public long getRemainingMillis(UUID uuid) {
-        if (remainingMillis.containsKey(uuid)) return remainingMillis.get(uuid);
-        if (savedConfig != null) {
-            long computed = savedConfig.computeAndGetRemainingMillis(uuid);
-            remainingMillis.put(uuid, computed);
-            return computed;
-        }
-        return (long) getCountdownSeconds() * 1000L;
+    public CountdownConfigData getConfig() {
+        return savedConfig;
     }
 
-    //--Get/Set Stackable days--
-    public void setStackableDays(int days) {
-        if (savedConfig != null) savedConfig.setStackableDays(days);
+    public int getCountdownSeconds() {
+        return savedConfig != null ? savedConfig.getCountdownSeconds() : 3600;
     }
+
+    public void setCountdownSeconds(int seconds) {
+        if (savedConfig != null) savedConfig.setCountdownSeconds(seconds);
+    }
+
+    public long getRemainingMillis(UUID uuid) {
+        return savedConfig.getRemainingMillis(uuid);
+    }
+
+    public void setRemainingMillis(UUID uuid, long millis) {
+        remainingMillis.put(uuid, millis);
+        savedConfig.setRemainingMillis(uuid, millis);
+    }
+
     public int getStackableDays() {
         return savedConfig != null ? savedConfig.getStackableDays() : 3;
     }
 
-    //--Get/Set Time Freezing--
-    public boolean isFrozenGlobally(){
+    public void setStackableDays(int days) {
+        if (savedConfig != null) savedConfig.setStackableDays(days);
+    }
+
+    public boolean isFrozenGlobally() {
         return savedConfig.isFrozenGlobally();
     }
-    public int setTimestate(boolean isFrozen){
-        savedConfig.setTimeCountingStateGlobally(isFrozen);
-        return isFrozen ? 1:0;
+
+    public void setFrozenGlobally(boolean frozen) {
+        if (savedConfig != null) savedConfig.setTimeCountingStateGlobally(frozen);
     }
 
-    //--Reset All Countdowns
     public void resetAllCountdowns() {
         if (savedConfig == null) return;
-
-        long baseMillis = (long) getCountdownSeconds() * 1000L;
-
-        // iterate saved players (includes offline players)
         for (String key : savedConfig.getSavedPlayerKeys()) {
             try {
                 UUID uuid = UUID.fromString(key);
-                // set persistent value (persist happens in savedConfig.setRemainingMillis)
-                savedConfig.setRemainingMillis(uuid, baseMillis);
-
-                // sync runtime cache if online / present
-                if (remainingMillis.containsKey(uuid)) {
-                    savedConfig.markReset(uuid); // sets anchor to today
-                    remainingMillis.put(uuid, baseMillis);
-                }
-            } catch (IllegalArgumentException ignored) {
-                // skip any garbage keys
-            }
+                savedConfig.resetPlayer(uuid);
+                remainingMillis.put(uuid, savedConfig.getRemainingMillis(uuid));
+            } catch (IllegalArgumentException ignored) {}
         }
     }
 
-    // ---------------- events ----------------
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         UUID uuid = player.getUUID();
 
-        // ensure anchor exists (first-join)
         savedConfig.markFirstJoin(uuid);
+        long currentRemaining = savedConfig.getRemainingMillis(uuid);
+        long accumulated = savedConfig.getAccumulatedMillis(uuid);
+        long maxPossible = savedConfig.getMaxPossibleMillis(uuid);
 
-        // recompute remaining based on calendar (works even if server was offline)
-        // computeAndGetRemainingMillis already persists the result internally
-        long rem = savedConfig.computeAndGetRemainingMillis(uuid);
-        remainingMillis.put(uuid, rem);
+        remainingMillis.put(uuid, currentRemaining);
+        lastTickTime.put(uuid, System.currentTimeMillis());
 
-        long baseMillis = (long) getCountdownSeconds() * 1000L;
+        String status = String.format("Time: %s (Accumulated: %s/%s)",
+                formatTimeWithMillis(currentRemaining),
+                formatTimeWithMillis(accumulated),
+                formatTimeWithMillis(maxPossible));
+        player.sendSystemMessage(Component.literal(status), true);
 
-        player.sendSystemMessage(Component.literal("Playtime updated (calendar-based)."), true);
-
-        // In onPlayerLogin method, update the packet creation:
         LimitedTimeNetwork.CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> player),
-                new RemainingTimePacket(player.getUUID(), rem, savedConfig.getGlobalTimezone().toString(), baseMillis, isFrozenGlobally()) // ADD isFrozen
+                new RemainingTimePacket(uuid, currentRemaining,
+                        savedConfig.getGlobalTimezone().getId(),
+                        (long) getCountdownSeconds() * 1000L,
+                        isFrozenGlobally(),
+                        accumulated,
+                        maxPossible)
         );
     }
+
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         UUID uuid = player.getUUID();
-        long rem = remainingMillis.getOrDefault(uuid, savedConfig.getRemainingMillis(uuid));
-        savedConfig.setRemainingMillis(uuid, rem);
+
+        Long currentTime = remainingMillis.get(uuid);
+        if (currentTime != null) {
+            savedConfig.setRemainingMillis(uuid, currentTime);
+        }
+        remainingMillis.remove(uuid);
+        lastTickTime.remove(uuid);
     }
-    // In the onServerTick method, modify the packet sending:
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
+        if (event.phase != TickEvent.Phase.END || isFrozenGlobally()) return;
 
-        if (!isFrozenGlobally()) {
-            UUID[] keys = remainingMillis.keySet().toArray(new UUID[0]);
-            for (UUID uuid : keys) {
-                ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
-                if (player == null) continue;
+        long currentTime = System.currentTimeMillis();
 
-                if (!remainingMillis.containsKey(uuid)) continue;
+        for (Map.Entry<UUID, Long> entry : remainingMillis.entrySet()) {
+            UUID uuid = entry.getKey();
+            Long rem = entry.getValue();
 
-                long rem = remainingMillis.get(uuid);
-                rem -= TICK_MS;
+            if (rem == null || rem <= 0) continue;
 
-                long baseMillis = (long) getCountdownSeconds() * 1000L;
+            ServerPlayer player = event.getServer().getPlayerList().getPlayer(uuid);
+            if (player == null) continue;
 
-                System.out.println("Sending time update to " + player.getScoreboardName() + ": " + rem + "ms, base: " + baseMillis + "ms");
-
-                if (rem <= 0L) {
-                    player.displayClientMessage(Component.literal(getCountdownSeconds() + " seconds passed"), true);
-                    player.connection.disconnect(Component.literal("Time is up!"));
-                    long recomputed = savedConfig.computeAndGetRemainingMillis(uuid);
-                    rem = recomputed;
-                }
-
-                remainingMillis.put(uuid, rem);
-                savedConfig.setRemainingMillis(uuid, rem);
+            Long lastTick = lastTickTime.get(uuid);
+            if (lastTick == null) {
+                lastTickTime.put(uuid, currentTime);
+                continue;
             }
+
+            long elapsed = currentTime - lastTick;
+            long newRem = rem - elapsed;
+
+            if (newRem <= 0) {
+                newRem = 0;
+                savedConfig.deductTime(uuid, rem);
+                player.displayClientMessage(Component.literal("Time limit reached!"), true);
+                player.connection.disconnect(Component.literal("Your accumulated playtime has expired. More time will be added tomorrow!"));
+            } else {
+                savedConfig.deductTime(uuid, elapsed);
+
+                if (newRem <= 300000 && newRem > 240000) {
+                    player.displayClientMessage(Component.literal("Warning: Less than 5 minutes remaining"), true);
+                } else if (newRem <= 60000) {
+                    player.displayClientMessage(Component.literal("Warning: Less than 1 minute remaining!"), true);
+                }
+            }
+
+            remainingMillis.put(uuid, newRem);
+            lastTickTime.put(uuid, currentTime);
+
+            if (currentTime % 10000 < 50) {
+                long accumulated = savedConfig.getAccumulatedMillis(uuid);
+                long maxPossible = savedConfig.getMaxPossibleMillis(uuid);
+                LimitedTimeNetwork.CHANNEL.send(
+                        PacketDistributor.PLAYER.with(() -> player),
+                        new RemainingTimePacket(uuid, newRem,
+                                savedConfig.getGlobalTimezone().getId(),
+                                (long) getCountdownSeconds() * 1000L,
+                                isFrozenGlobally(),
+                                accumulated,
+                                maxPossible)
+                );
+            }
+        }
+    }
+
+    private String formatTimeWithMillis(long millis) {
+        long totalSeconds = millis / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        long remainingMillis = millis % 1000;
+
+        if (hours > 0) {
+            return String.format("%dh %02dm %02d.%03ds", hours, minutes, seconds, remainingMillis);
+        } else if (minutes > 0) {
+            return String.format("%dm %02d.%03ds", minutes, seconds, remainingMillis);
+        } else {
+            return String.format("%d.%03ds", seconds, remainingMillis);
         }
     }
 }

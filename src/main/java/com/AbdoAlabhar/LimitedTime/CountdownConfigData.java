@@ -5,102 +5,102 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class CountdownConfigData extends SavedData {
-
-    private int stackableDays = 3;
-    private int countdownSeconds = 3600;
-    private boolean isFrozenGlobally= true;
+    private int stackableDays = 3;  // Max days to accumulate
+    private int countdownSeconds = 3600;  // Base daily time (1 hour)
+    private boolean isFrozenGlobally = true;
     private String globalTimezone = null;
 
-    // persisted player maps (keys are UUID strings)
     private final Map<String, Long> remainingMap = new HashMap<>();
-    private final Map<String, LocalDate> anchorDate = new HashMap<>();
+    private final Map<String, LocalDate> lastCheckDate = new HashMap<>();
+    private final Map<String, Long> accumulatedTime = new HashMap<>();  // Total accumulated time including today
 
-    //-- Get/Set for timer control--
     public int getCountdownSeconds() { return countdownSeconds; }
+
     public void setCountdownSeconds(int seconds) {
         countdownSeconds = Math.max(1, seconds);
         setDirty();
     }
+
     public void setRemainingMillis(UUID uuid, long millis) {
-        remainingMap.put(uuid.toString(), Math.max(0L, millis));setDirty();
+        remainingMap.put(uuid.toString(), Math.max(0L, millis));
+        setDirty();
     }
+
     public long getRemainingMillis(UUID uuid) {
-        return computeAndGetRemainingMillis(uuid);
+        return computeAccumulatedRemainingMillis(uuid);
     }
-    public long computeAndGetRemainingMillis(UUID uuid) {
-        String k = uuid.toString();
-        LocalDate today = LocalDate.now(getGlobalTimezone());
-        LocalDate anchor = anchorDate.get(k);
 
-        // if no anchor, set it to today and give base
-        if (anchor == null) {
-            anchorDate.put(k, today);
-            setDirty();
-            long base = (long) countdownSeconds * 1000L;
-            remainingMap.put(k, base);
-            setDirty();
-            return base;
-        }
-
-        long daysSince = ChronoUnit.DAYS.between(anchor, today);
-        if (daysSince < 0) daysSince = 0;
+    private long computeAccumulatedRemainingMillis(UUID uuid) {
+        String key = uuid.toString();
+        ZonedDateTime now = ZonedDateTime.now(getGlobalTimezone());
+        LocalDate today = now.toLocalDate();
 
         long baseMillis = (long) countdownSeconds * 1000L;
-        int stackable = getStackableDays();
-        long cap = baseMillis * (long) stackable;
+        long maxAccumulatedMillis = baseMillis * (long) stackableDays;
 
-        long cyclesPassed = daysSince / stackable;    // how many full cycles passed
-        long remainderDays = daysSince % stackable;   // days into the current cycle (0.stackable-1)
-
-        long current;
-        if (cyclesPassed > 0) {
-            // advance anchor forward by whole cycles and start current at base (new cycle)
-            LocalDate newAnchor = anchor.plusDays(cyclesPassed * (long) stackable);
-            anchorDate.put(k, newAnchor);
+        if (!lastCheckDate.containsKey(key)) {
+            lastCheckDate.put(key, today);
+            accumulatedTime.put(key, baseMillis);  // Start with base time
+            remainingMap.put(key, baseMillis);
             setDirty();
-            current = baseMillis;
-        } else {
-            // no full cycles passed — start from stored remaining (or base if missing)
-            current = remainingMap.getOrDefault(k, baseMillis);
+            return baseMillis;
         }
 
-        // simulate each missed calendar day in order, preserving leftover millis
-        for (long i = 0; i < remainderDays; i++) {
-            if (current >= cap) {
-                // if already at cap, the next day resets the stack to base
-                current = baseMillis;
-            } else {
-                current = Math.min(cap, current + baseMillis);
+        LocalDate lastDate = lastCheckDate.get(key);
+        long currentAccumulated = accumulatedTime.getOrDefault(key, baseMillis);
+        long currentRemaining = remainingMap.getOrDefault(key, baseMillis);
+
+        if (lastDate.isBefore(today)) {
+            long daysPassed = ChronoUnit.DAYS.between(lastDate, today);
+
+            for (int i = 0; i < daysPassed; i++) {
+                long unusedFromPrevious = Math.max(0, currentRemaining);
+
+                currentAccumulated = Math.min(maxAccumulatedMillis, currentAccumulated + baseMillis);
+
+                currentRemaining = Math.min(currentAccumulated, currentRemaining);
             }
+
+            lastCheckDate.put(key, today);
         }
 
-        // persist and return bounded value
-        remainingMap.put(k, Math.min(current, cap));
+        currentRemaining = Math.min(currentRemaining, currentAccumulated);
+
+        // Update stored values
+        accumulatedTime.put(key, currentAccumulated);
+        remainingMap.put(key, currentRemaining);
         setDirty();
-        return remainingMap.get(k);
+
+        return currentRemaining;
     }
 
-    //-- Get/Set for stackable days
+    public void deductTime(UUID uuid, long millisToDeduct) {
+        String key = uuid.toString();
+        long currentRemaining = remainingMap.getOrDefault(key, (long) countdownSeconds * 1000L);
+        long newRemaining = Math.max(0, currentRemaining - millisToDeduct);
+        remainingMap.put(key, newRemaining);
+        setDirty();
+    }
+
     public int getStackableDays() { return Math.max(1, stackableDays); }
+
     public void setStackableDays(int days) {
         stackableDays = Math.max(1, days);
         setDirty();
     }
 
-    //-- Get/Set for Timezone
     public void setGlobalTimezone(String zoneId) {
         globalTimezone = zoneId;
         setDirty();
     }
-    public LocalDate getAnchorDate(UUID uuid) {
-        return anchorDate.get(uuid.toString());
-    }
+
     public ZoneId getGlobalTimezone() {
         if (globalTimezone == null || globalTimezone.isEmpty()) return ZoneId.systemDefault();
         try {
@@ -110,84 +110,117 @@ public class CountdownConfigData extends SavedData {
         }
     }
 
-    //-- Get/Set for Freeze or Unfreeze Time Globally--
     public boolean isFrozenGlobally() {
         return isFrozenGlobally;
     }
-    public void setTimeCountingStateGlobally(boolean isFrozenGlobally) {
-        this.isFrozenGlobally = isFrozenGlobally;
+
+    public void setTimeCountingStateGlobally(boolean frozen) {
+        this.isFrozenGlobally = frozen;
+        setDirty();
     }
 
-    //Mark or reset last day joined
     public void markFirstJoin(UUID uuid) {
-        String k = uuid.toString();
-        if (!anchorDate.containsKey(k)) {
-            anchorDate.put(k, LocalDate.now(getGlobalTimezone()));
+        String key = uuid.toString();
+        if (!lastCheckDate.containsKey(key)) {
+            ZonedDateTime now = ZonedDateTime.now(getGlobalTimezone());
+            lastCheckDate.put(key, now.toLocalDate());
+            long baseMillis = (long) countdownSeconds * 1000L;
+            accumulatedTime.put(key, baseMillis);
+            remainingMap.put(key, baseMillis);
             setDirty();
         }
     }
-    public void markReset(UUID uuid) {
-        anchorDate.put(uuid.toString(), LocalDate.now(ZoneId.systemDefault()));
+
+    public void resetPlayer(UUID uuid) {
+        String key = uuid.toString();
+        ZonedDateTime now = ZonedDateTime.now(getGlobalTimezone());
+        lastCheckDate.put(key, now.toLocalDate());
+        long baseMillis = (long) countdownSeconds * 1000L;
+        accumulatedTime.put(key, baseMillis);
+        remainingMap.put(key, baseMillis);
         setDirty();
     }
 
-    //player keys
+    public long getAccumulatedMillis(UUID uuid) {
+        return accumulatedTime.getOrDefault(uuid.toString(), (long) countdownSeconds * 1000L);
+    }
+
+    public long getMaxPossibleMillis(UUID uuid) {
+        return (long) countdownSeconds * 1000L * (long) stackableDays;
+    }
+
     public Iterable<String> getSavedPlayerKeys() {
         return remainingMap.keySet();
     }
+
     public void removePlayer(UUID uuid) {
-        String k = uuid.toString();
-        remainingMap.remove(k);
-        anchorDate.remove(k);
+        String key = uuid.toString();
+        remainingMap.remove(key);
+        lastCheckDate.remove(key);
+        accumulatedTime.remove(key);
         setDirty();
     }
 
-    // --- NBT saving/loading ---
     @Override
     public CompoundTag save(CompoundTag nbt) {
         nbt.putInt("CountdownSeconds", countdownSeconds);
         nbt.putInt("StackableDays", stackableDays);
         nbt.putBoolean("IsFrozenGlobally", isFrozenGlobally);
-
         if (globalTimezone != null) nbt.putString("GlobalTimezone", globalTimezone);
 
-        CompoundTag playersTag = new CompoundTag();
+        CompoundTag remainingTag = new CompoundTag();
         for (Map.Entry<String, Long> e : remainingMap.entrySet()) {
-            playersTag.putLong(e.getKey(), e.getValue());
+            remainingTag.putLong(e.getKey(), e.getValue());
         }
-        nbt.put("PlayerRemaining", playersTag);
+        nbt.put("PlayerRemaining", remainingTag);
 
-        CompoundTag anchorTag = new CompoundTag();
-        for (Map.Entry<String, LocalDate> e : anchorDate.entrySet()) {
-            anchorTag.putString(e.getKey(), e.getValue().toString());
+        CompoundTag dateTag = new CompoundTag();
+        for (Map.Entry<String, LocalDate> e : lastCheckDate.entrySet()) {
+            dateTag.putString(e.getKey(), e.getValue().toString());
         }
-        nbt.put("PlayerAnchorDate", anchorTag);
+        nbt.put("LastCheckDate", dateTag);
+
+        CompoundTag accumulatedTag = new CompoundTag();
+        for (Map.Entry<String, Long> e : accumulatedTime.entrySet()) {
+            accumulatedTag.putLong(e.getKey(), e.getValue());
+        }
+        nbt.put("AccumulatedTime", accumulatedTag);
 
         return nbt;
     }
 
     public static CountdownConfigData load(CompoundTag nbt) {
-        CountdownConfigData d = new CountdownConfigData();
-        if (nbt.contains("GlobalTimezone")) d.globalTimezone = nbt.getString("GlobalTimezone");
-        if (nbt.contains("CountdownSeconds")) d.countdownSeconds = nbt.getInt("CountdownSeconds");
-        if (nbt.contains("StackableDays")) d.stackableDays = nbt.getInt("StackableDays");
+        CountdownConfigData data = new CountdownConfigData();
+
+        if (nbt.contains("GlobalTimezone")) data.globalTimezone = nbt.getString("GlobalTimezone");
+        if (nbt.contains("CountdownSeconds")) data.countdownSeconds = nbt.getInt("CountdownSeconds");
+        if (nbt.contains("StackableDays")) data.stackableDays = nbt.getInt("StackableDays");
+        if (nbt.contains("IsFrozenGlobally")) data.isFrozenGlobally = nbt.getBoolean("IsFrozenGlobally");
+
         if (nbt.contains("PlayerRemaining")) {
-            CompoundTag playersTag = nbt.getCompound("PlayerRemaining");
-            for (String key : playersTag.getAllKeys()) {
-                d.remainingMap.put(key, playersTag.getLong(key));
+            CompoundTag remainingTag = nbt.getCompound("PlayerRemaining");
+            for (String key : remainingTag.getAllKeys()) {
+                data.remainingMap.put(key, remainingTag.getLong(key));
             }
         }
-        if (nbt.contains("PlayerAnchorDate")) {
-            CompoundTag anchorTag = nbt.getCompound("PlayerAnchorDate");
-            for (String key : anchorTag.getAllKeys()) {
-                String s = anchorTag.getString(key);
-                if (s != null && !s.isEmpty()) {
-                    d.anchorDate.put(key, LocalDate.parse(s));
+
+        if (nbt.contains("LastCheckDate")) {
+            CompoundTag dateTag = nbt.getCompound("LastCheckDate");
+            for (String key : dateTag.getAllKeys()) {
+                String dateStr = dateTag.getString(key);
+                if (dateStr != null && !dateStr.isEmpty()) {
+                    data.lastCheckDate.put(key, LocalDate.parse(dateStr));
                 }
             }
         }
-        if (nbt.contains("IsFrozenGlobally")){d.isFrozenGlobally = nbt.getBoolean("IsFrozenGlobally");}
 
-        return d;
+        if (nbt.contains("AccumulatedTime")) {
+            CompoundTag accumulatedTag = nbt.getCompound("AccumulatedTime");
+            for (String key : accumulatedTag.getAllKeys()) {
+                data.accumulatedTime.put(key, accumulatedTag.getLong(key));
+            }
+        }
+
+        return data;
     }
 }

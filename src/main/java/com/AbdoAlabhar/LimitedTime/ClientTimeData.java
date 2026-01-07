@@ -6,16 +6,24 @@ public class ClientTimeData {
     private static long remainingMillis;
     private static String timezone = "UTC";
     private static long baseMillis = 3600 * 1000L;
-    private static boolean isFrozen = false; // NEW: Track frozen state
+    private static boolean isFrozen = false;
 
-    public static void update(UUID playerId, long millis, String tz, long base, boolean frozen) {
+    public static synchronized void updateFromServer(UUID playerId, long serverMillis, String tz, long base, boolean frozen) {
+        if (remainingMillis <= 0) {
+            remainingMillis = serverMillis;
+        } else {
+            remainingMillis = Math.min(remainingMillis, serverMillis);
+        }
+
+        timezone = (tz == null || tz.isEmpty()) ? "UTC" : tz;
+        baseMillis = base > 0 ? base : 3600 * 1000L;
+        isFrozen = frozen;
+
+        ClientOverlay.syncWithServer(remainingMillis, timezone, baseMillis, frozen);
+    }
+
+    public static void saveLocalTime(long millis) {
         remainingMillis = millis;
-        timezone = tz;
-        baseMillis = base;
-        isFrozen = frozen; // NEW
-
-        // Sync with the overlay
-        ClientOverlay.setInitialTime(millis, tz, base, frozen);
     }
 
     public static long getRemainingMillis() {
@@ -30,8 +38,11 @@ public class ClientTimeData {
         return baseMillis;
     }
 
-    // NEW: Get frozen state
     public static boolean isFrozen() {
         return isFrozen;
+    }
+
+    public static void reset() {
+        remainingMillis = 0;
     }
 }

@@ -15,44 +15,43 @@ import java.time.format.DateTimeFormatter;
 
 @Mod.EventBusSubscriber(modid = "timelimiter", value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class ClientOverlay {
+    private static final ResourceLocation TEXTURE = new ResourceLocation("timelimiter", "textures/gui/time_bg.png");
+    private static final Minecraft mc = Minecraft.getInstance();
 
-    private static long clientRemainingMillis = 0;
-    private static long lastRenderTime = System.currentTimeMillis();
-    private static String timezone = "UTC";
-    private static long baseMillis = 3600 * 1000L;
-    private static boolean isFrozen = false; // NEW: Track frozen state
-    private static Minecraft mc = Minecraft.getInstance();
+    private static volatile long clientRemainingMillis = -1;
+    private static volatile long clientAccumulatedMillis = 0;
+    private static volatile long clientMaxAccumulatedMillis = 0;
+    private static volatile long lastRenderTime = System.currentTimeMillis();
+    private static volatile String timezone = "UTC";
+    private static volatile long baseMillis = 3600 * 1000L;
+    private static volatile boolean isFrozen = false;
+    private static volatile boolean isFirstSync = true;
 
     @SubscribeEvent
     public static void onRenderOverlay(RenderGuiOverlayEvent.Post event) {
-        GuiGraphics g = event.getGuiGraphics();
-        if (mc.player == null) return;
+        if (clientRemainingMillis < 0 || mc.player == null) return;
 
-        // Calculate elapsed time since last render
+        GuiGraphics g = event.getGuiGraphics();
         long currentTime = System.currentTimeMillis();
         long elapsed = currentTime - lastRenderTime;
         lastRenderTime = currentTime;
 
-        // Only update countdown if NOT frozen AND game is not paused (singleplayer)
         if (!isFrozen && !mc.isPaused()) {
-            if (clientRemainingMillis > 0) {
-                clientRemainingMillis = Math.max(0, clientRemainingMillis - elapsed);
-            }
+            clientRemainingMillis = Math.max(0, clientRemainingMillis - elapsed);
         }
 
-        // Don't render if no time left and no valid timezone
-        if (clientRemainingMillis <= 0 && timezone.equals("UTC")) {
-            return;
+        if (clientRemainingMillis <= 0) return;
+
+        double progress = 1.0;
+        if (clientAccumulatedMillis > 0) {
+            progress = Math.min(1.0, (double) clientRemainingMillis / clientAccumulatedMillis);
         }
 
-        // Your existing rendering code (unchanged)...
-        long extraMillis = Math.max(0, clientRemainingMillis - baseMillis);
-
-        ResourceLocation TEXTURE = new ResourceLocation("timelimiter", "textures/gui/time_bg.png");
         int bgX = 5;
         int bgY = mc.getWindow().getGuiScaledHeight() - 26;
         int regionWidth = 95;
         int regionHeight = 27;
+
         RenderSystem.setShaderTexture(0, TEXTURE);
         g.blit(TEXTURE, bgX, bgY, 0, 0, regionWidth, regionHeight, 800, 800);
 
@@ -60,22 +59,18 @@ public class ClientOverlay {
         int innerY = bgY + 3;
         int innerWidth = 89;
         int innerHeight = 21;
-        double baseProgress = Math.min(1.0, (double) Math.min(clientRemainingMillis, baseMillis) / baseMillis);
-        float hue = (float) (0.33f * baseProgress);
-        java.awt.Color colorObj = java.awt.Color.getHSBColor(hue, 1.0f, 1.0f);
-        int baseColor = (0xFF << 24) | (colorObj.getRed() << 16) | (colorObj.getGreen() << 8) | colorObj.getBlue();
-        int baseFill = (int) (innerWidth * baseProgress);
-        g.fill(innerX, innerY, innerX + baseFill, innerY + innerHeight, baseColor);
 
-        if (extraMillis > 0) {
-            double extraProgress = Math.min(1.0, (double) extraMillis / baseMillis);
-            int overlayWidth = (int) (innerWidth * extraProgress);
-            float overlayHue = (float) (0.33f - 0.6f * extraProgress);
-            float saturation = 1.0f;
-            float brightness = 0.5f;
-            java.awt.Color overlayColorObj = java.awt.Color.getHSBColor(overlayHue, saturation, brightness);
-            int overlayColor = (0xFF << 24) | (overlayColorObj.getRed() << 16) | (overlayColorObj.getGreen() << 8) | overlayColorObj.getBlue();
-            g.fill(innerX, innerY, innerX + overlayWidth, innerY + innerHeight, overlayColor);
+        float hue = (float) (0.33f * progress);
+        int color = getColorFromHue(hue, 1.0f, 1.0f);
+        int fillWidth = (int) (innerWidth * progress);
+        g.fill(innerX, innerY, innerX + fillWidth, innerY + innerHeight, color);
+
+        if (clientAccumulatedMillis > baseMillis) {
+            double accumulationRatio = Math.min(1.0, (double) (clientAccumulatedMillis - baseMillis) / (clientMaxAccumulatedMillis - baseMillis));
+            int accumulationBarHeight = 2;
+            int accumulationBarY = innerY - accumulationBarHeight - 1;
+            int accumulationWidth = (int) (innerWidth * accumulationRatio);
+            g.fill(innerX, accumulationBarY, innerX + accumulationWidth, accumulationBarY + accumulationBarHeight, 0xFF00FF00);
         }
 
         ZoneId zoneId;
@@ -84,11 +79,10 @@ public class ClientOverlay {
         } catch (Exception e) {
             zoneId = ZoneId.systemDefault();
         }
-        ZonedDateTime now = ZonedDateTime.now(zoneId);
 
-        // Add "(FROZEN)" indicator when time is frozen
-        String frozenIndicator = isFrozen || mc.isPaused() ? " (FROZEN)" : "";
-        String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm")) + " (" + timezone + ")" + frozenIndicator;
+        ZonedDateTime now = ZonedDateTime.now(zoneId);
+        String frozenIndicator = (isFrozen || mc.isPaused()) ? " (FROZEN)" : "";
+        String regionTime = now.format(DateTimeFormatter.ofPattern("HH:mm:ss")) + " (" + timezone + ")" + frozenIndicator;
 
         float scale = 0.9f;
         g.pose().pushPose();
@@ -97,13 +91,27 @@ public class ClientOverlay {
         g.pose().popPose();
 
         long countdownMillis = clientRemainingMillis;
-        long seconds = countdownMillis / 1000;
-        long minutes = seconds / 60;
-        long hours = minutes / 60;
-        seconds %= 60;
-        minutes %= 60;
+        long totalSeconds = countdownMillis / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
         long millis = countdownMillis % 1000;
-        String countdown = String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis);
+
+        String countdown;
+        if (hours > 0) {
+            countdown = String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis);
+        } else if (minutes > 0) {
+            countdown = String.format("%02d:%02d.%03d", minutes, seconds, millis);
+        } else {
+            countdown = String.format("%02d.%03d", seconds, millis);
+        }
+
+        if (clientAccumulatedMillis > baseMillis) {
+            long accHours = clientAccumulatedMillis / (1000 * 3600);
+            long accMinutes = (clientAccumulatedMillis % (1000 * 3600)) / (1000 * 60);
+            long accSeconds = (clientAccumulatedMillis % (1000 * 60)) / 1000;
+            countdown += String.format(" (%d:%02d:%02d)", accHours, accMinutes, accSeconds);
+        }
 
         g.pose().pushPose();
         g.pose().scale(scale, scale, 1);
@@ -111,16 +119,36 @@ public class ClientOverlay {
         g.pose().popPose();
     }
 
-    // Method to set the initial time from server packet
-    public static void setInitialTime(long initialMillis, String tz, long base, boolean frozen) {
-        clientRemainingMillis = initialMillis;
-        timezone = tz;
-        baseMillis = base;
-        isFrozen = frozen; // NEW
+    private static int getColorFromHue(float hue, float saturation, float brightness) {
+        java.awt.Color color = java.awt.Color.getHSBColor(hue, saturation, brightness);
+        return (0xFF << 24) | (color.getRed() << 16) | (color.getGreen() << 8) | color.getBlue();
+    }
+
+    public static synchronized void syncWithServer(long serverRemainingMillis, String tz, long base, boolean frozen) {
+        if (isFirstSync) {
+            clientRemainingMillis = serverRemainingMillis;
+            isFirstSync = false;
+        } else {
+            clientRemainingMillis = Math.min(clientRemainingMillis, serverRemainingMillis);
+        }
+
+        timezone = (tz == null || tz.isEmpty()) ? "UTC" : tz;
+        baseMillis = base > 0 ? base : 3600 * 1000L;
+        clientAccumulatedMillis = serverRemainingMillis;
+        clientMaxAccumulatedMillis = baseMillis * 3;
+        isFrozen = frozen;
         lastRenderTime = System.currentTimeMillis();
     }
 
-    // Get current client-side remaining time
+    public static void setAccumulationInfo(long accumulated, long maxAccumulated) {
+        clientAccumulatedMillis = accumulated;
+        clientMaxAccumulatedMillis = maxAccumulated;
+    }
+
+    public static void resetOnDisconnect() {
+        isFirstSync = true;
+    }
+
     public static long getCurrentClientTime() {
         return clientRemainingMillis;
     }

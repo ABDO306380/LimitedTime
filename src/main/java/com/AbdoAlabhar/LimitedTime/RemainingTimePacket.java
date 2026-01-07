@@ -1,6 +1,7 @@
 package com.AbdoAlabhar.LimitedTime;
 
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.UUID;
@@ -11,42 +12,54 @@ public class RemainingTimePacket {
     private final long remainingMillis;
     private final String timezone;
     private final long baseMillis;
-    private final boolean isFrozen; // NEW: Include frozen state
+    private final boolean isFrozen;
+    private final long accumulatedMillis;
+    private final long maxAccumulatedMillis;
 
     public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, long baseMillis, boolean isFrozen) {
+        this(playerUUID, remainingMillis, timezone, baseMillis, isFrozen, remainingMillis, baseMillis * 3);
+    }
+
+    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, long baseMillis,
+                               boolean isFrozen, long accumulatedMillis, long maxAccumulatedMillis) {
         this.playerUUID = playerUUID;
         this.remainingMillis = remainingMillis;
         this.timezone = timezone;
         this.baseMillis = baseMillis;
-        this.isFrozen = isFrozen; // NEW
+        this.isFrozen = isFrozen;
+        this.accumulatedMillis = accumulatedMillis;
+        this.maxAccumulatedMillis = maxAccumulatedMillis;
     }
 
-    // Decode from buffer
     public RemainingTimePacket(FriendlyByteBuf buf) {
         this.playerUUID = buf.readUUID();
         this.remainingMillis = buf.readLong();
-        this.timezone = buf.readUtf(50);
+        this.timezone = buf.readUtf(100);
         this.baseMillis = buf.readLong();
-        this.isFrozen = buf.readBoolean(); // NEW
+        this.isFrozen = buf.readBoolean();
+        this.accumulatedMillis = buf.readLong();
+        this.maxAccumulatedMillis = buf.readLong();
     }
 
-    // Encode to buffer
     public void encode(FriendlyByteBuf buf) {
         buf.writeUUID(playerUUID);
         buf.writeLong(remainingMillis);
         buf.writeUtf(timezone);
         buf.writeLong(baseMillis);
-        buf.writeBoolean(isFrozen); // NEW
+        buf.writeBoolean(isFrozen);
+        buf.writeLong(accumulatedMillis);
+        buf.writeLong(maxAccumulatedMillis);
     }
 
-    // Handler for client
-    public void handle(Supplier<NetworkEvent.Context> ctxSupplier) {
-        NetworkEvent.Context ctx = ctxSupplier.get();
-        ctx.enqueueWork(() -> {
-            // Update client-side data for overlay
-            ClientTimeData.update(playerUUID, remainingMillis, timezone, baseMillis, isFrozen); // UPDATED
-            System.out.println("Player " + playerUUID + " has " + remainingMillis + " ms left in " + timezone + ", base: " + baseMillis + "ms, frozen: " + isFrozen);
+    public void handle(Supplier<NetworkEvent.Context> ctx) {
+        if (ctx.get().getDirection() != NetworkDirection.PLAY_TO_CLIENT) {
+            return;
+        }
+
+        ctx.get().enqueueWork(() -> {
+            ClientTimeData.updateFromServer(playerUUID, remainingMillis, timezone, baseMillis, isFrozen);
+            ClientOverlay.setAccumulationInfo(accumulatedMillis, maxAccumulatedMillis);
         });
-        ctx.setPacketHandled(true);
+        ctx.get().setPacketHandled(true);
     }
 }
