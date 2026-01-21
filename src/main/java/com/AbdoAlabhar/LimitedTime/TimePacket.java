@@ -1,20 +1,19 @@
 package com.AbdoAlabhar.LimitedTime;
 
-import com.AbdoAlabhar.LimitedTime.ClientTimeData;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.UUID;
 import java.util.function.Supplier;
 
-public class RemainingTimePacket {
+public class TimePacket {
     private final UUID playerUUID;
     private final long remainingMillis;
     private final String timezone;
     private final boolean isFrozen;
     private final int baseCountdownSeconds; // NEW: so client knows the base time
 
-    public RemainingTimePacket(UUID playerUUID, long remainingMillis, String timezone, boolean isFrozen, int baseCountdownSeconds) {
+    public TimePacket(UUID playerUUID, long remainingMillis, String timezone, boolean isFrozen, int baseCountdownSeconds) {
         this.playerUUID = playerUUID;
         this.remainingMillis = remainingMillis;
         this.timezone = timezone;
@@ -22,7 +21,7 @@ public class RemainingTimePacket {
         this.baseCountdownSeconds = baseCountdownSeconds;
     }
 
-    public RemainingTimePacket(FriendlyByteBuf buf) {
+    public TimePacket(FriendlyByteBuf buf) {
         this.playerUUID = buf.readUUID();
         this.remainingMillis = buf.readLong();
         this.timezone = buf.readUtf(50);

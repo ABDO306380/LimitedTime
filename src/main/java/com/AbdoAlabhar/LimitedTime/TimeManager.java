@@ -320,7 +320,7 @@ public class TimeManager {
     private void sendTimeUpdate(ServerPlayer player, long timeMillis) {
         LimitedTimeNetwork.CHANNEL.send(
                 PacketDistributor.PLAYER.with(() -> player),
-                new RemainingTimePacket(
+                new TimePacket(
                         player.getUUID(),
                         timeMillis,
                         savedConfig.getGlobalTimezone().toString(),

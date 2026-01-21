@@ -1,6 +1,5 @@
 package com.AbdoAlabhar.LimitedTime;
 
-import com.AbdoAlabhar.LimitedTime.RemainingTimePacket;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
 import net.minecraftforge.network.NetworkDirection;
@@ -23,10 +22,10 @@ public class LimitedTimeNetwork {
     public static void register() {
         CHANNEL.registerMessage(
                 packetId++,
-                RemainingTimePacket.class,
-                RemainingTimePacket::encode,
-                RemainingTimePacket::new,
-                RemainingTimePacket::handle,
+                TimePacket.class,
+                TimePacket::encode,
+                TimePacket::new,
+                TimePacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_CLIENT)
         );
 
