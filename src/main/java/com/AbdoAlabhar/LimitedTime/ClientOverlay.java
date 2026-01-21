@@ -32,10 +32,7 @@ public class ClientOverlay {
             return;
         }
 
-        // Use a default base time if we can't get from server
-        long baseMillis = 3600 * 1000L; // default 1 hour
-
-        // Extra time above base
+        long baseMillis = ClientTimeData.getBaseCountdownSeconds() * 1000L;
         long extraMillis = Math.max(0, remainingMillis - baseMillis);
 
         // --- Background ---
@@ -67,7 +64,7 @@ public class ClientOverlay {
             int overlayWidth = (int) (innerWidth * extraProgress);
 
             // Dark blue → dark green gradient
-            float overlayHue = (float) (0.33f - 0.6f * extraProgress); // 0.6 = dark blue, 0.33 = dark green
+            float overlayHue = (float) (0.33f - 0.6f * extraProgress);
             float saturation = 1.0f;
             float brightness = 0.5f; // darker
             java.awt.Color overlayColorObj = java.awt.Color.getHSBColor(overlayHue, saturation, brightness);
