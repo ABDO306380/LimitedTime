@@ -3,4 +3,5 @@ Only available at 1.20.1 (From Forge 47.2.0)
 
 V3.0 Beta Changes: Fixed The Gui problem (It wasn't rendring the Gui on the server side)
 V4.0 Beta Changes: Added Freeze/Unfreeze Command
-V4.1 Beta Changes: some countdown's bar fixes
+V4.1 to V4.4 Beta Changes: some countdown's bar fixes
+V5.0 Beta Changes: Restructuring Time Manager, With availability of changing time settings from gamerules menu before creating the world
